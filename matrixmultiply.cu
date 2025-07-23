@@ -1,5 +1,11 @@
 #include <cuda_runtime.h>
+#include <cuda_profiler_api.h>
+#include <device_launch_parameters.h>
+#include <random>
 #include <iostream>
+#include <iomanip>
+#include <stdlib.h>
+#include <stdio.h>
 #include <chrono>
 
 #define N 1024
@@ -79,8 +85,26 @@ void cuda_tiled_matrixmul(int n, float* a, float* b, float* c) {
 
 }
 
+void initialize_matrix(float* matrix, int n) {
+    std::random_device rd;
+    std::mt19937 gen(rd());
+    std::uniform_real_distribution<float> dis(-1.0f, 1.0f);
+
+    for (int i = 0; i < n * n; i++) {
+        matrix[i] = dis(gen);
+    }
+}
+
+float measure_gpu_time(cudaEvent_t start, cudaEvent_t stop) {
+    float miliseconds = 0;
+    cudaEventElapsedTime(&miliseconds, start, stop);
+    return miliseconds / 1000.0f;
+}
+
 int main() {
     int size = N * N * sizeof(float);
+
+    // Host memory allocation
     float* A, float* B, float* C_cpu, float* C_gpu, float* C_gpu_tiled;
     float* d_A, float* d_B, float* d_C;
     A = (float*)malloc(size);
@@ -89,11 +113,10 @@ int main() {
     C_gpu = (float*)malloc(size);
     C_gpu_tiled = (float*)malloc(size);
 
-    for (int i = 0; i < N*N; i++) { //initializing
-        A[i] = 2.0f;
-        B[i] = 3.0f;
-    }
+    initialize_matrix(A, N);
+    initialize_matrix(B, N);
 
+    // Device memory allocation
     cudaMalloc((void**)&d_A, size);
     cudaMalloc((void**)&d_B, size);
     cudaMalloc((void**)&d_C, size);
@@ -101,38 +124,51 @@ int main() {
     cudaMemcpy(d_A, A, size, cudaMemcpyHostToDevice);
     cudaMemcpy(d_B, B, size, cudaMemcpyHostToDevice);
 
-    // cpu baseline
-    auto start = std::chrono::high_resolution_clock::now();
-    cpu_matrixmul(N, A, B, C_cpu);
-    auto end = std::chrono::high_resolution_clock::now();
-    auto microseconds = std::chrono::duration_cast<std::chrono::microseconds>(end-start).count();
-    std::cout << "CPU execution time for matrix mul: " << microseconds << " microseconds" << std::endl;
+    // Create CUDA events for timing
+    cudaEvent_t start, stop;
+    cudaEventCreate(&start);
+    cudaEventCreate(&stop);
 
-    // basic cuda
+    // CPU Baseline
+    cudaEventRecord(start);
+    cpu_matrixmul(N, A, B, C_cpu);
+    cudaEventRecord(stop);
+    cudaEventSynchronize(stop);
+    float cpu_time = measure_gpu_time(start, stop);
+    std::cout << "CPU execution time for matrix mul: " << cpu_time << " seconds" << std::endl;
+
+    // Naive Cuda
     dim3 blockSize(BLOCK_SIZE, BLOCK_SIZE);
     dim3 gridSize((N + BLOCK_SIZE - 1)/BLOCK_SIZE, (N + BLOCK_SIZE - 1)/BLOCK_SIZE);
 
-    start = std::chrono::high_resolution_clock::now();
+    cudaEventRecord(start);
     cuda_matrixmul<<<gridSize, blockSize>>>(N, d_A, d_B, d_C);
-    end = std::chrono::high_resolution_clock::now();
-    microseconds = std::chrono::duration_cast<std::chrono::microseconds>(end-start).count();
-    std::cout << "GPU execution time for matrix mul: " << microseconds << " microseconds" << std::endl;
+    cudaEventRecord(stop);
+    cudaEventSynchronize(stop);
+    float gpu_time = measure_gpu_time(start, stop);
+    std::cout << "GPU execution time for naive cuda matrix mul: " << gpu_time << " seconds" << std::endl;
+    std::cout << "Speedup vs CPU: " << (cpu_time / gpu_time);
     cudaMemcpy(C_gpu, d_C, size, cudaMemcpyDeviceToHost);
 
-    // cuda tiled
+    // Tiled Cuda
     dim3 tiledblockSize(BLOCK_SIZE, BLOCK_SIZE);
     dim3 tiledgridSize((N + BLOCK_SIZE - 1) / BLOCK_SIZE, (N + BLOCK_SIZE - 1) / BLOCK_SIZE);
 
-    start = std::chrono::high_resolution_clock::now();
+    cudaEventRecord(start);
     cuda_tiled_matrixmul<<<tiledblockSize, tiledgridSize>>>(N, d_A, d_B, d_C);
-    end = std::chrono::high_resolution_clock::now();
-    microseconds = std::chrono::duration_cast<std::chrono::microseconds>(end-start).count();
-    std::cout << "GPU execution time for tiled matrix mul: " << microseconds << " microseconds" << std::endl;
+    cudaEventRecord(stop);
+    cudaEventSynchronize(stop);
+    float tiled_gpu_time = measure_gpu_time(start, stop);
+    std::cout << "GPU execution time for tiled cuda matrix mul: " << tiled_gpu_time << " seconds" << std::endl;
+    std::cout << "Speedup vs CPU: " << (cpu_time / tiled_gpu_time) << std::endl;
+    std::cout << "Speedup vs Naive CUDA: " << (gpu_time / tiled_gpu_time) << std::endl;
     cudaMemcpy(C_gpu_tiled, d_C, size, cudaMemcpyDeviceToHost);
 
-    std::cout << C_cpu[0] << std::endl;
-    std::cout << C_gpu[0] << std::endl;
-    std::cout << C_gpu_tiled[0] << std::endl;
+    long long ops = 2LL * N * N * N;
+    std::cout << "GFLOPS calculations: " << std::endl;
+    std::cout << "CPU GFLOPS: " << ops / (cpu_time * 1e9) << std::endl;
+    std::cout << "Naive CUDA GFLOPS: " << ops / (gpu_time * 1e9) << std::endl;
+    std::cout << "Tiled CUDA GFLOPS: " << ops / (tiled_gpu_time * 1e9) << std::endl;
 
     cudaFree(d_A);
     cudaFree(d_B);
@@ -142,4 +178,6 @@ int main() {
     free(C_cpu);
     free(C_gpu);
     free(C_gpu_tiled);
+    cudaEventDestroy(start);
+    cudaEventDestroy(stop);
 }
