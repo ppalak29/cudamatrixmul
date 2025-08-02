@@ -135,7 +135,7 @@ int main() {
     cudaEventRecord(stop);
     cudaEventSynchronize(stop);
     float cpu_time = measure_gpu_time(start, stop);
-    std::cout << "CPU execution time for matrix mul: " << cpu_time << " seconds" << std::endl;
+    std::cout << "CPU execution time for matrix mul: " << cpu_time << " miliseconds" << std::endl;
 
     // Naive Cuda
     dim3 blockSize(BLOCK_SIZE, BLOCK_SIZE);
@@ -146,8 +146,8 @@ int main() {
     cudaEventRecord(stop);
     cudaEventSynchronize(stop);
     float gpu_time = measure_gpu_time(start, stop);
-    std::cout << "GPU execution time for naive cuda matrix mul: " << gpu_time << " seconds" << std::endl;
-    std::cout << "Speedup vs CPU: " << (cpu_time / gpu_time);
+    std::cout << "GPU execution time for naive cuda matrix mul: " << gpu_time << " miliseconds" << std::endl;
+    std::cout << "Speedup vs CPU: " << (cpu_time / gpu_time) << std::endl;
     cudaMemcpy(C_gpu, d_C, size, cudaMemcpyDeviceToHost);
 
     // Tiled Cuda
@@ -159,16 +159,16 @@ int main() {
     cudaEventRecord(stop);
     cudaEventSynchronize(stop);
     float tiled_gpu_time = measure_gpu_time(start, stop);
-    std::cout << "GPU execution time for tiled cuda matrix mul: " << tiled_gpu_time << " seconds" << std::endl;
+    std::cout << "GPU execution time for tiled cuda matrix mul: " << tiled_gpu_time << " miliseconds" << std::endl;
     std::cout << "Speedup vs CPU: " << (cpu_time / tiled_gpu_time) << std::endl;
     std::cout << "Speedup vs Naive CUDA: " << (gpu_time / tiled_gpu_time) << std::endl;
     cudaMemcpy(C_gpu_tiled, d_C, size, cudaMemcpyDeviceToHost);
 
     long long ops = 2LL * N * N * N;
     std::cout << "GFLOPS calculations: " << std::endl;
-    std::cout << "CPU GFLOPS: " << ops / (cpu_time * 1e9) << std::endl;
-    std::cout << "Naive CUDA GFLOPS: " << ops / (gpu_time * 1e9) << std::endl;
-    std::cout << "Tiled CUDA GFLOPS: " << ops / (tiled_gpu_time * 1e9) << std::endl;
+    std::cout << "CPU GFLOPS: " << ops / (cpu_time * 1e6) << std::endl;
+    std::cout << "Naive CUDA GFLOPS: " << ops / (gpu_time * 1e6) << std::endl;
+    std::cout << "Tiled CUDA GFLOPS: " << ops / (tiled_gpu_time * 1e6) << std::endl;
 
     cudaFree(d_A);
     cudaFree(d_B);
